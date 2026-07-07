@@ -27,5 +27,8 @@ TestResults/
 project.lock.json
 project.fragment.lock.json
 
+## BenchmarkDotNet
+BenchmarkDotNet.Artifacts/
+
 ## Local .NET SDK (installed into repo during CI/dev, if any)
 .dotnet/

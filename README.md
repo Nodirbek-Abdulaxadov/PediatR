@@ -80,6 +80,22 @@ string response = await mediator.Send(new Ping("Ping")); // "Ping Pong"
   (`RegisterServicesFromAssembly*`, `AddBehavior`, `AddOpenBehavior(s)`, `AddStreamBehavior`,
   `AddRequestPreProcessor`, `AddRequestPostProcessor`, `Lifetime`, `NotificationPublisher(Type)`, …).
 
+## Performance
+
+PediatR is performance-competitive with MediatR 12.5.0 — within a few nanoseconds and with identical
+allocations on the Send/Publish/pipeline paths, and faster for streaming. From a BenchmarkDotNet
+`MediumRun` on .NET 8:
+
+| Scenario | MediatR | PediatR | Ratio | Allocated |
+|--------------------------|--------:|--------:|:-----:|:----------------|
+| Send                     | 161.6 ns | 166.7 ns | 1.03× | 312 B → 312 B |
+| Publish (2 handlers)     | 197.6 ns | 205.5 ns | 1.04× | 440 B → 440 B |
+| Pipeline (3 behaviors)   | 335.4 ns | 329.9 ns | 0.98× | 792 B → 792 B |
+| Stream (10 items)        | 727.8 ns | 411.9 ns | 0.57× | 632 B → 432 B |
+
+Ratio is PediatR ÷ MediatR (lower is better). See [BENCHMARKS.md](BENCHMARKS.md) for methodology and
+how to reproduce.
+
 ## Pipeline execution order
 
 For a request, behaviors execute outermost → innermost in this order (the first-registered behavior
