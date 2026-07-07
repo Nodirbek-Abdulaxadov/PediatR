@@ -1,0 +1,59 @@
+name: Publish
+
+# Publishes the PediatR package to NuGet.org.
+# Trigger either by pushing a version tag (e.g. `v1.0.0`) — the version is taken
+# from the tag — or by running the workflow manually and supplying a version.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Package version to publish (e.g. 1.0.1)"
+        required: true
+        type: string
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    if: github.repository == 'Nodirbek-Abdulaxadov/PediatR'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Determine version
+        id: version
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION="${GITHUB_REF_NAME#v}"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Publishing PediatR version $VERSION"
+
+      - name: Restore
+        run: dotnet restore PediatR.sln
+
+      - name: Build
+        run: dotnet build PediatR.sln -c Release --no-restore -p:Version=${{ steps.version.outputs.version }}
+
+      - name: Test
+        run: dotnet test PediatR.sln -c Release --no-build
+
+      - name: Pack
+        run: dotnet pack src/PediatR/PediatR.csproj -c Release --no-build -p:Version=${{ steps.version.outputs.version }} -o artifacts
+
+      - name: Push to NuGet
+        run: >-
+          dotnet nuget push artifacts/*.nupkg
+          --api-key "${{ secrets.NUGET_API_KEY }}"
+          --source https://api.nuget.org/v3/index.json
+          --skip-duplicate
