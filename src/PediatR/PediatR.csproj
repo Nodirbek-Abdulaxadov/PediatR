@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFrameworks>netstandard2.0;net8.0</TargetFrameworks>
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+    <!-- CS1591: XML docs are provided on public types but not every trivial member.
+         CA1510: ArgumentNullException.ThrowIfNull is unavailable on netstandard2.0.
+         CS8619: benign nullable-variance note when boxing TResponse into IAsyncEnumerable<object?>. -->
+    <NoWarn>$(NoWarn);CS1591;CA1510;CS8619</NoWarn>
+  </PropertyGroup>
+
+  <!-- NuGet package metadata -->
+  <PropertyGroup>
+    <PackageId>PediatR</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Nodirbek</Authors>
+    <Company>Nodirbek</Company>
+    <Product>PediatR</Product>
+    <Description>PediatR is a clean-room, source-compatible reimplementation of the MediatR 12.5.0 public API contract under the PediatR namespace. Replace MediatR with PediatR (namespace + package name) as a drop-in mediator implementation. Independent implementation of the mediator pattern; not affiliated with MediatR.</Description>
+    <PackageTags>mediator;cqrs;request;response;notification;pipeline;mediatr;pediatr</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <RepositoryUrl>https://github.com/Nodirbek-Abdulaxadov/PediatR</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Nodirbek-Abdulaxadov/PediatR</PackageProjectUrl>
+    <RepositoryType>git</RepositoryType>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection.Abstractions" Version="8.0.2" />
+  </ItemGroup>
+
+  <!-- netstandard2.0 needs this to light up IAsyncEnumerable. init-only/record members are enabled
+       by the conditionally-compiled IsExternalInit.cs shim in this project. -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="Microsoft.Bcl.AsyncInterfaces" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../../README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,36 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{11C8D14A-9680-4EAA-B49D-94F5DFD97DA4}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PediatR", "src\PediatR\PediatR.csproj", "{456F3662-7D34-4959-B86D-882665B3F4CC}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "test", "test", "{92C315EF-FF47-46AD-BEA7-4287F8512DDE}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "PediatR.Tests", "test\PediatR.Tests\PediatR.Tests.csproj", "{9EAB79F0-FB03-46B8-B2BD-3A6900779AD7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{456F3662-7D34-4959-B86D-882665B3F4CC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{456F3662-7D34-4959-B86D-882665B3F4CC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{456F3662-7D34-4959-B86D-882665B3F4CC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{456F3662-7D34-4959-B86D-882665B3F4CC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9EAB79F0-FB03-46B8-B2BD-3A6900779AD7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9EAB79F0-FB03-46B8-B2BD-3A6900779AD7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9EAB79F0-FB03-46B8-B2BD-3A6900779AD7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9EAB79F0-FB03-46B8-B2BD-3A6900779AD7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{456F3662-7D34-4959-B86D-882665B3F4CC} = {11C8D14A-9680-4EAA-B49D-94F5DFD97DA4}
+		{9EAB79F0-FB03-46B8-B2BD-3A6900779AD7} = {92C315EF-FF47-46AD-BEA7-4287F8512DDE}
+	EndGlobalSection
+EndGlobal

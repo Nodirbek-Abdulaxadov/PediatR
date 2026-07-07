@@ -1,0 +1,31 @@
+## .NET / Visual Studio
+bin/
+obj/
+[Bb]in/
+[Oo]bj/
+artifacts/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+TestResults/
+
+## User-specific / IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*_i.c
+*.rsp
+
+## Packages / build output
+*.nupkg
+*.snupkg
+project.lock.json
+project.fragment.lock.json
+
+## Local .NET SDK (installed into repo during CI/dev, if any)
+.dotnet/
