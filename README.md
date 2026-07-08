@@ -125,7 +125,13 @@ var todo2 = await sender.GetTodo(42);                 // generated ISender exten
 
 None of this touches the drop-in guarantee: the generator only reacts to `[Handler]`/`[Command]`/
 `[Query]`, so a mechanical `MediatR` → `PediatR` migration (which has none of them) compiles
-untouched. A runnable end-to-end demo lives in [`samples/PediatR.Sample`](samples/PediatR.Sample).
+untouched.
+
+Runnable demos:
+- [`samples/PediatR.Sample`](samples/PediatR.Sample) — a console walkthrough of the three modes.
+- [`samples/PediatR.Sample.Api`](samples/PediatR.Sample.Api) — a full minimal-API showcase: the
+  Clean Architecture pipeline (logging / unhandled / authorization / validation / performance),
+  `[Authorize]`, FluentValidation, notification fan-out, and streaming — all driven over HTTP.
 
 ## Performance
 
