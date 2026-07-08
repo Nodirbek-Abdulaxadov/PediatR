@@ -25,7 +25,13 @@ namespace PediatR.SourceGenerator;
 /// host class itself must be registered by the consumer.
 /// </para>
 /// <para>
-/// Skeleton scope: only methods returning <c>Task&lt;T&gt;</c> are supported. Static, generic,
+/// Cross-cutting integration (Phase 3): any non-authoring attribute on the method that is valid on a
+/// class (e.g. <c>[Authorize]</c>) is forwarded onto the generated request, so pipeline behaviors
+/// that reflect over the request type (authorization, etc.) light up unchanged. A classic
+/// <c>ISender</c> extension method is also generated per request for an ergonomic call site.
+/// </para>
+/// <para>
+/// Scope: only methods returning <c>Task&lt;T&gt;</c> are supported. Static, generic,
 /// private/protected, and non-<c>Task&lt;T&gt;</c> methods are skipped silently, as are methods on
 /// generic or abstract host types.
 /// </para>
@@ -136,7 +142,7 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
             return null;
         }
 
-        // Skeleton: only Task<T>.
+        // Skeleton scope: only Task<T>.
         if (method.ReturnType is not INamedTypeSymbol returnType
             || returnType.Name != "Task"
             || returnType.TypeArguments.Length != 1
@@ -159,6 +165,36 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
             ", ",
             plainParameters.Select(p => $"request.{Capitalize(p.Name)}"));
 
+        // For the ergonomic ISender extension: keep the method's original parameter names.
+        var extensionParameters = string.Join(
+            ", ",
+            plainParameters.Select(p => $"{p.Type.ToDisplayString(FullyQualified)} {p.Name}"));
+        var extensionArguments = string.Join(", ", plainParameters.Select(p => p.Name));
+
+        // Forward cross-cutting attributes ([Authorize], etc.) onto the generated request type,
+        // skipping the authoring attributes and anything not valid on a class.
+        var forwarded = new List<string>();
+        foreach (var attribute in method.GetAttributes())
+        {
+            if (attribute.AttributeClass is not { } attributeClass)
+            {
+                continue;
+            }
+
+            var attributeFqn = attributeClass.ToDisplayString();
+            if (attributeFqn is HandlerAttribute or CommandAttribute or QueryAttribute)
+            {
+                continue;
+            }
+
+            if (!CanTargetClass(attributeClass))
+            {
+                continue;
+            }
+
+            forwarded.Add(RenderAttribute(attribute));
+        }
+
         var containingNamespace = host.ContainingNamespace is { IsGlobalNamespace: false } ns
             ? ns.ToDisplayString()
             : null;
@@ -173,6 +209,9 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
             response.ToDisplayString(FullyQualified),
             recordParameters,
             serviceCallArguments,
+            extensionParameters,
+            extensionArguments,
+            string.Join("\n", forwarded),
             hasCancellationToken);
     }
 
@@ -231,10 +270,20 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
             builder.AppendLine("{");
         }
 
+        // Request record (with any forwarded cross-cutting attributes).
         builder.AppendLine($"{indent}/// <summary>Auto-generated request for <c>{model.HostSimpleName}.{model.MethodName}</c>.</summary>");
+        if (model.ForwardedAttributes.Length > 0)
+        {
+            foreach (var attribute in model.ForwardedAttributes.Split('\n'))
+            {
+                builder.AppendLine($"{indent}{attribute}");
+            }
+        }
+
         builder.AppendLine($"{indent}public sealed record {requestName}({model.RecordParameters}) : {model.MarkerFqn}<{model.ResponseTypeFqn}>;");
         builder.AppendLine();
 
+        // Handler that delegates to the host instance.
         builder.AppendLine($"{indent}[global::System.CodeDom.Compiler.GeneratedCode(\"PediatR.SourceGenerator\", null)]");
         builder.AppendLine($"{indent}internal sealed class {handlerName} : global::PediatR.IRequestHandler<{requestName}, {model.ResponseTypeFqn}>");
         builder.AppendLine($"{indent}{{");
@@ -246,6 +295,19 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
         builder.AppendLine($"{indent}    public global::System.Threading.Tasks.Task<{model.ResponseTypeFqn}> Handle({requestName} request, global::System.Threading.CancellationToken cancellationToken)");
         builder.AppendLine($"{indent}        => _service.{model.MethodName}({serviceCall});");
         builder.AppendLine($"{indent}}}");
+        builder.AppendLine();
+
+        // Ergonomic ISender extension: sender.{Method}(args) => sender.Send(new {Request}(args)).
+        var extensionParameters = model.ExtensionParameters.Length == 0
+            ? "this global::PediatR.ISender sender"
+            : "this global::PediatR.ISender sender, " + model.ExtensionParameters;
+
+        builder.AppendLine($"{indent}/// <summary>Ergonomic dispatch for <c>{model.HostSimpleName}.{model.MethodName}</c> — sends <c>{requestName}</c> through the pipeline.</summary>");
+        builder.AppendLine($"{indent}public static class {requestName}SenderExtensions");
+        builder.AppendLine($"{indent}{{");
+        builder.AppendLine($"{indent}    public static global::System.Threading.Tasks.Task<{model.ResponseTypeFqn}> {model.MethodName}({extensionParameters}, global::System.Threading.CancellationToken cancellationToken = default)");
+        builder.AppendLine($"{indent}        => sender.Send(new {requestName}({model.ExtensionArguments}), cancellationToken);");
+        builder.AppendLine($"{indent}}}");
 
         if (model.Namespace is not null)
         {
@@ -253,6 +315,93 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
         }
 
         return builder.ToString();
+    }
+
+    // ── Attribute forwarding helpers ─────────────────────────────────────────
+
+    private static bool CanTargetClass(INamedTypeSymbol attributeClass)
+    {
+        foreach (var usage in attributeClass.GetAttributes())
+        {
+            if (usage.AttributeClass?.ToDisplayString() != "System.AttributeUsageAttribute")
+            {
+                continue;
+            }
+
+            if (usage.ConstructorArguments.Length > 0 && usage.ConstructorArguments[0].Value is int targets)
+            {
+                return (targets & (int)System.AttributeTargets.Class) != 0;
+            }
+        }
+
+        // No [AttributeUsage] means the default (AttributeTargets.All), which includes classes.
+        return true;
+    }
+
+    private static string RenderAttribute(AttributeData attribute)
+    {
+        var name = attribute.AttributeClass!.ToDisplayString(FullyQualified);
+
+        var arguments = new List<string>();
+        foreach (var constructorArgument in attribute.ConstructorArguments)
+        {
+            arguments.Add(RenderConstant(constructorArgument));
+        }
+
+        foreach (var namedArgument in attribute.NamedArguments)
+        {
+            arguments.Add($"{namedArgument.Key} = {RenderConstant(namedArgument.Value)}");
+        }
+
+        return arguments.Count == 0 ? $"[{name}]" : $"[{name}({string.Join(", ", arguments)})]";
+    }
+
+    private static string RenderConstant(TypedConstant constant)
+    {
+        if (constant.IsNull)
+        {
+            return "null";
+        }
+
+        switch (constant.Kind)
+        {
+            case TypedConstantKind.Enum:
+                return $"(({constant.Type!.ToDisplayString(FullyQualified)}){constant.Value})";
+            case TypedConstantKind.Type:
+                return constant.Value is ITypeSymbol type
+                    ? $"typeof({type.ToDisplayString(FullyQualified)})"
+                    : "null";
+            case TypedConstantKind.Array:
+                var elements = string.Join(", ", constant.Values.Select(RenderConstant));
+                return $"new {constant.Type!.ToDisplayString(FullyQualified)} {{ {elements} }}";
+            default:
+                return RenderPrimitive(constant.Value!);
+        }
+    }
+
+    private static string RenderPrimitive(object value)
+    {
+        switch (value)
+        {
+            case bool b:
+                return b ? "true" : "false";
+            case string s:
+                return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r", "\\r").Replace("\n", "\\n") + "\"";
+            case char c:
+                return c == '\'' ? "'\\''" : "'" + c + "'";
+            case float f:
+                return f.ToString(System.Globalization.CultureInfo.InvariantCulture) + "F";
+            case double d:
+                return d.ToString(System.Globalization.CultureInfo.InvariantCulture) + "D";
+            case decimal m:
+                return m.ToString(System.Globalization.CultureInfo.InvariantCulture) + "M";
+            case long l:
+                return l.ToString(System.Globalization.CultureInfo.InvariantCulture) + "L";
+            case ulong ul:
+                return ul.ToString(System.Globalization.CultureInfo.InvariantCulture) + "UL";
+            default:
+                return System.Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "default";
+        }
     }
 
     private static string Capitalize(string name)
@@ -280,6 +429,9 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
         string ResponseTypeFqn,
         string RecordParameters,
         string ServiceCallArguments,
+        string ExtensionParameters,
+        string ExtensionArguments,
+        string ForwardedAttributes,
         bool HasCancellationToken)
     {
         public string IntendedNameKey => (Namespace ?? string.Empty) + "::" + MethodName + Suffix;
