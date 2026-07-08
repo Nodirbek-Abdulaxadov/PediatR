@@ -81,6 +81,52 @@ string response = await mediator.Send(new Ping("Ping")); // "Ping Pong"
   (`RegisterServicesFromAssembly*`, `AddBehavior`, `AddOpenBehavior(s)`, `AddStreamBehavior`,
   `AddRequestPreProcessor`, `AddRequestPostProcessor`, `Lifetime`, `NotificationPublisher(Type)`, …).
 
+## Source-generated handlers (optional)
+
+Beyond the classic hand-written `IRequestHandler<,>`, PediatR ships an optional Roslyn source
+generator — **bundled in the same package**, no extra install — that removes the request/handler
+boilerplate. Annotate an **instance method** and the generator emits the matching request type and
+handler for you. The generated request keeps the exact MediatR shape, so it runs through the same
+pipeline as everything else and is picked up by the same assembly scan (no extra discovery marker).
+
+Three authoring modes, one pipeline:
+
+```csharp
+public sealed class TodoFeatures(AppDbContext db)
+{
+    // Neutral — no CQRS opinion.  → ListTodosRequest : IRequest<List<Todo>>
+    [Handler] public Task<List<Todo>> ListTodos() => db.Todos.ToListAsync();
+
+    // Query marker.               → GetTodoQuery(int Id) : IQuery<Todo?> : IRequest<Todo?>
+    [Query]   public Task<Todo?> GetTodo(int id) => db.Todos.FindAsync(id).AsTask();
+
+    // Command marker; the [Authorize] is forwarded onto the generated request.
+    //                             → CreateTodoCommand(string Title) : ICommand<int> : IRequest<int>
+    [Command] [Authorize(Roles = "admin")]
+    public Task<int> CreateTodo(string title) { /* ... */ }
+}
+```
+
+The declaring class is injected from DI (you register it), and its constructor dependencies flow in
+normally. Dispatch either explicitly or through the generated ergonomic extension:
+
+```csharp
+var todo  = await sender.Send(new GetTodoQuery(42));  // explicit
+var todo2 = await sender.GetTodo(42);                 // generated ISender extension
+```
+
+- **`ICommand<T>` / `IQuery<T>`** are thin markers over `IRequest<T>` that let you target behaviors
+  (e.g. `where TRequest : IQuery<TResponse>`). They are additive — hand-written or migrated code that
+  only uses `IRequest<T>` is unaffected.
+- **Attribute forwarding.** Any attribute on the method that is valid on a class (e.g. `[Authorize]`)
+  is copied onto the generated request, so authorization and other reflective behaviors work unchanged.
+- **Scope.** The generator handles `Task<T>`-returning instance methods; caching is a planned opt-in
+  behavior, not part of this layer.
+
+None of this touches the drop-in guarantee: the generator only reacts to `[Handler]`/`[Command]`/
+`[Query]`, so a mechanical `MediatR` → `PediatR` migration (which has none of them) compiles
+untouched. A runnable end-to-end demo lives in [`samples/PediatR.Sample`](samples/PediatR.Sample).
+
 ## Performance
 
 On .NET 10, PediatR is **faster** than MediatR 12.5.0 on Send, pipelines and streams, and on par for
