@@ -12,7 +12,7 @@
   <!-- NuGet package metadata -->
   <PropertyGroup>
     <PackageId>PediatR</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Authors>Nodirbek</Authors>
     <Company>Nodirbek</Company>
     <Product>PediatR</Product>
@@ -39,6 +39,22 @@
 
   <ItemGroup>
     <None Include="../../README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Bundle the source generator inside this single package (frozen decision: one NuGet).
+       OutputItemType="Analyzer" makes it run during this project's own build; ReferenceOutputAssembly
+       is false so it is never a runtime dependency. The DLL is then packed into the analyzers path so
+       consumers of the PediatR package get the generator automatically. -->
+  <ItemGroup>
+    <ProjectReference Include="../PediatR.SourceGenerator/PediatR.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false"
+                      PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="../PediatR.SourceGenerator/bin/$(Configuration)/netstandard2.0/PediatR.SourceGenerator.dll"
+          Pack="true" PackagePath="analyzers/dotnet/cs" Visible="false" />
   </ItemGroup>
 
 </Project>

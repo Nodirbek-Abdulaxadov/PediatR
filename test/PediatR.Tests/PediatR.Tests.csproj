@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="FluentValidation" Version="11.11.0" />
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="8.0.1" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1" />
     <PackageReference Include="xunit" Version="2.9.2" />
@@ -20,6 +21,11 @@
 
   <ItemGroup>
     <ProjectReference Include="../../src/PediatR/PediatR.csproj" />
+    <!-- Reference the generator as an analyzer so it runs against this test assembly.
+         (Analyzers from a ProjectReference do not flow transitively, so it is referenced directly.) -->
+    <ProjectReference Include="../../src/PediatR.SourceGenerator/PediatR.SourceGenerator.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
   </ItemGroup>
 
 </Project>
