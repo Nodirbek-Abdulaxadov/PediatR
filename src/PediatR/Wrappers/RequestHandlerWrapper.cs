@@ -35,16 +35,38 @@ internal sealed class RequestHandlerWrapperImpl<TRequest, TResponse> : RequestHa
 
     public override Task<TResponse> Handle(IRequest<TResponse> request, IServiceProvider serviceProvider, CancellationToken cancellationToken)
     {
+        var typedRequest = (TRequest)request;
+
         Task<TResponse> Handler(CancellationToken t = default)
             => serviceProvider.GetRequiredService<IRequestHandler<TRequest, TResponse>>()
-                .Handle((TRequest)request, t == default ? cancellationToken : t);
+                .Handle(typedRequest, t == default ? cancellationToken : t);
 
-        return serviceProvider
-            .GetServices<IPipelineBehavior<TRequest, TResponse>>()
-            .Reverse()
-            .Aggregate(
-                (RequestHandlerDelegate<TResponse>)Handler,
-                (next, pipeline) => (RequestHandlerDelegate<TResponse>)((t) => pipeline.Handle((TRequest)request, next, t == default ? cancellationToken : t)))(cancellationToken);
+        var next = (RequestHandlerDelegate<TResponse>)Handler;
+
+        // Fold the behaviors so the first-registered runs outermost. The common no-behavior case
+        // short-circuits straight to the handler with no LINQ buffer or accumulator closures. The
+        // service provider returns the behaviors as an array, so we iterate it in reverse in place.
+        var behaviors = serviceProvider.GetServices<IPipelineBehavior<TRequest, TResponse>>();
+        if (behaviors is IPipelineBehavior<TRequest, TResponse>[] array)
+        {
+            for (var i = array.Length - 1; i >= 0; i--)
+            {
+                var behavior = array[i];
+                var inner = next;
+                next = t => behavior.Handle(typedRequest, inner, t == default ? cancellationToken : t);
+            }
+        }
+        else
+        {
+            foreach (var behavior in behaviors.Reverse())
+            {
+                var current = behavior;
+                var inner = next;
+                next = t => current.Handle(typedRequest, inner, t == default ? cancellationToken : t);
+            }
+        }
+
+        return next(cancellationToken);
     }
 }
 
@@ -68,19 +90,38 @@ internal sealed class RequestHandlerWrapperImpl<TRequest> : RequestHandlerWrappe
 
     public override Task<Unit> Handle(IRequest request, IServiceProvider serviceProvider, CancellationToken cancellationToken)
     {
+        var typedRequest = (TRequest)request;
+
         async Task<Unit> Handler(CancellationToken t = default)
         {
             await serviceProvider.GetRequiredService<IRequestHandler<TRequest>>()
-                .Handle((TRequest)request, t == default ? cancellationToken : t)
+                .Handle(typedRequest, t == default ? cancellationToken : t)
                 .ConfigureAwait(false);
             return Unit.Value;
         }
 
-        return serviceProvider
-            .GetServices<IPipelineBehavior<TRequest, Unit>>()
-            .Reverse()
-            .Aggregate(
-                (RequestHandlerDelegate<Unit>)Handler,
-                (next, pipeline) => (RequestHandlerDelegate<Unit>)((t) => pipeline.Handle((TRequest)request, next, t == default ? cancellationToken : t)))(cancellationToken);
+        var next = (RequestHandlerDelegate<Unit>)Handler;
+
+        var behaviors = serviceProvider.GetServices<IPipelineBehavior<TRequest, Unit>>();
+        if (behaviors is IPipelineBehavior<TRequest, Unit>[] array)
+        {
+            for (var i = array.Length - 1; i >= 0; i--)
+            {
+                var behavior = array[i];
+                var inner = next;
+                next = t => behavior.Handle(typedRequest, inner, t == default ? cancellationToken : t);
+            }
+        }
+        else
+        {
+            foreach (var behavior in behaviors.Reverse())
+            {
+                var current = behavior;
+                var inner = next;
+                next = t => current.Handle(typedRequest, inner, t == default ? cancellationToken : t);
+            }
+        }
+
+        return next(cancellationToken);
     }
 }

@@ -44,15 +44,34 @@ internal sealed class StreamRequestHandlerWrapperImpl<TRequest, TResponse> : Str
 
     public override IAsyncEnumerable<TResponse> Handle(IStreamRequest<TResponse> request, IServiceProvider serviceProvider, CancellationToken cancellationToken)
     {
-        StreamHandlerDelegate<TResponse> seed = () =>
-            serviceProvider.GetRequiredService<IStreamRequestHandler<TRequest, TResponse>>()
-                .Handle((TRequest)request, cancellationToken);
+        var typedRequest = (TRequest)request;
 
-        return serviceProvider
-            .GetServices<IStreamPipelineBehavior<TRequest, TResponse>>()
-            .Reverse()
-            .Aggregate(
-                seed,
-                (next, pipeline) => (StreamHandlerDelegate<TResponse>)(() => pipeline.Handle((TRequest)request, next, cancellationToken)))();
+        StreamHandlerDelegate<TResponse> next = () =>
+            serviceProvider.GetRequiredService<IStreamRequestHandler<TRequest, TResponse>>()
+                .Handle(typedRequest, cancellationToken);
+
+        // First-registered behavior runs outermost; the no-behavior case returns the handler stream
+        // directly. Iterate the provider's array in reverse without a LINQ buffer or accumulator.
+        var behaviors = serviceProvider.GetServices<IStreamPipelineBehavior<TRequest, TResponse>>();
+        if (behaviors is IStreamPipelineBehavior<TRequest, TResponse>[] array)
+        {
+            for (var i = array.Length - 1; i >= 0; i--)
+            {
+                var behavior = array[i];
+                var inner = next;
+                next = () => behavior.Handle(typedRequest, inner, cancellationToken);
+            }
+        }
+        else
+        {
+            foreach (var behavior in behaviors.Reverse())
+            {
+                var current = behavior;
+                var inner = next;
+                next = () => current.Handle(typedRequest, inner, cancellationToken);
+            }
+        }
+
+        return next();
     }
 }

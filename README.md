@@ -34,7 +34,8 @@ The DI entry points live in the `Microsoft.Extensions.DependencyInjection` names
 dotnet add package PediatR
 ```
 
-Targets `netstandard2.0` (broad reach, incl. .NET Framework) and `net8.0`.
+Multi-targets `netstandard2.0` (broad reach, incl. .NET Framework), `net8.0`, `net9.0` and `net10.0`,
+so consumers on the latest runtimes get a natively-built, optimized asset.
 
 ## Quick start
 
@@ -82,16 +83,15 @@ string response = await mediator.Send(new Ping("Ping")); // "Ping Pong"
 
 ## Performance
 
-PediatR is performance-competitive with MediatR 12.5.0 — within a few nanoseconds and with identical
-allocations on the Send/Publish/pipeline paths, and faster for streaming. From a BenchmarkDotNet
-`MediumRun` on .NET 8:
+On .NET 10, PediatR is **faster** than MediatR 12.5.0 on Send, pipelines and streams, and on par for
+Publish — with equal or lower allocations. From a BenchmarkDotNet `MediumRun`:
 
 | Scenario | MediatR | PediatR | Ratio | Allocated |
 |--------------------------|--------:|--------:|:-----:|:----------------|
-| Send                     | 161.6 ns | 166.7 ns | 1.03× | 312 B → 312 B |
-| Publish (2 handlers)     | 197.6 ns | 205.5 ns | 1.04× | 440 B → 440 B |
-| Pipeline (3 behaviors)   | 335.4 ns | 329.9 ns | 0.98× | 792 B → 792 B |
-| Stream (10 items)        | 727.8 ns | 411.9 ns | 0.57× | 632 B → 432 B |
+| Send                     | 81.3 ns | **75.8 ns** | 0.93× | 200 B → 200 B |
+| Publish (2 handlers)     | 165.8 ns | 168.3 ns | 1.02× | 440 B → 440 B |
+| Pipeline (3 behaviors)   | 253.7 ns | **193.5 ns** | 0.76× | 728 B → 632 B |
+| Stream (10 items)        | 574.9 ns | **288.7 ns** | 0.50× | 584 B → 320 B |
 
 Ratio is PediatR ÷ MediatR (lower is better). See [BENCHMARKS.md](BENCHMARKS.md) for methodology and
 how to reproduce.
