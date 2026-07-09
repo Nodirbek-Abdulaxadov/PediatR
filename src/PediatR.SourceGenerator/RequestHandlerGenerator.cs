@@ -25,10 +25,15 @@ namespace PediatR.SourceGenerator;
 /// host class itself must be registered by the consumer.
 /// </para>
 /// <para>
-/// Cross-cutting integration (Phase 3): any non-authoring attribute on the method that is valid on a
-/// class (e.g. <c>[Authorize]</c>) is forwarded onto the generated request, so pipeline behaviors
-/// that reflect over the request type (authorization, etc.) light up unchanged. A classic
-/// <c>ISender</c> extension method is also generated per request for an ergonomic call site.
+/// Ergonomics: each host gets a grouped dispatch proxy reached with a classic (C#-version-agnostic)
+/// extension method — <c>sender.OrderFeatures().GetOrder(id)</c>. Grouping the methods under the host
+/// keeps call sites unambiguous when two features expose a same-named request (e.g. two
+/// <c>GetAll</c>s), without relying on C# 14 extension properties, so the netstandard2.0 reach is
+/// preserved. The public request record is still directly sendable via <c>Send(new …())</c>.
+/// </para>
+/// <para>
+/// Cross-cutting: any non-authoring attribute on the method that is valid on a class (e.g.
+/// <c>[Authorize]</c>) is forwarded onto the generated request so reflective behaviors light up.
 /// </para>
 /// <para>
 /// Scope: only methods returning <c>Task&lt;T&gt;</c> are supported. Static, generic,
@@ -165,11 +170,11 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
             ", ",
             plainParameters.Select(p => $"request.{Capitalize(p.Name)}"));
 
-        // For the ergonomic ISender extension: keep the method's original parameter names.
-        var extensionParameters = string.Join(
+        // For the grouped proxy method: keep the method's original parameter names.
+        var proxyParameters = string.Join(
             ", ",
             plainParameters.Select(p => $"{p.Type.ToDisplayString(FullyQualified)} {p.Name}"));
-        var extensionArguments = string.Join(", ", plainParameters.Select(p => p.Name));
+        var proxyArguments = string.Join(", ", plainParameters.Select(p => p.Name));
 
         // Forward cross-cutting attributes ([Authorize], etc.) onto the generated request type,
         // skipping the authoring attributes and anything not valid on a class.
@@ -209,8 +214,8 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
             response.ToDisplayString(FullyQualified),
             recordParameters,
             serviceCallArguments,
-            extensionParameters,
-            extensionArguments,
+            proxyParameters,
+            proxyArguments,
             string.Join("\n", forwarded),
             hasCancellationToken);
     }
@@ -222,35 +227,44 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
             return;
         }
 
-        // Predictable names (`{Method}{Suffix}`) unless two methods in the same namespace collide,
-        // in which case both fall back to a host-type-prefixed name.
+        // Resolve request names: predictable `{Method}{Suffix}`, unless two methods in the same
+        // namespace collide, in which case both fall back to a host-type-prefixed name.
         var counts = new Dictionary<string, int>();
         foreach (var model in models)
         {
-            var key = model.IntendedNameKey;
-            counts[key] = counts.TryGetValue(key, out var existing) ? existing + 1 : 1;
+            counts[model.IntendedNameKey] = counts.TryGetValue(model.IntendedNameKey, out var existing) ? existing + 1 : 1;
         }
 
-        var usedHints = new HashSet<string>();
+        var resolved = new List<(HandlerModel Model, string RequestName)>();
         foreach (var model in models)
         {
             var requestName = counts[model.IntendedNameKey] > 1
                 ? model.HostSimpleName + model.MethodName + model.Suffix
                 : model.MethodName + model.Suffix;
+            resolved.Add((model, requestName));
+        }
 
-            var hint = Sanitize((model.Namespace ?? "global") + "_" + requestName);
-            var uniqueHint = hint;
-            var attempt = 1;
-            while (!usedHints.Add(uniqueHint))
-            {
-                uniqueHint = hint + "_" + attempt++;
-            }
+        var usedHints = new HashSet<string>();
 
-            context.AddSource(uniqueHint + ".g.cs", SourceText.From(Render(model, requestName), Encoding.UTF8));
+        // 1) request record + handler — one file per method.
+        foreach (var (model, requestName) in resolved)
+        {
+            var hint = UniqueHint(usedHints, (model.Namespace ?? "global") + "_" + requestName);
+            context.AddSource(hint + ".g.cs", SourceText.From(RenderRequestAndHandler(model, requestName), Encoding.UTF8));
+        }
+
+        // 2) grouped dispatch proxy — one file per host, so call sites read
+        //    `sender.OrderFeatures().GetOrder(id)` and same-named methods across features never clash.
+        foreach (var group in resolved.GroupBy(r => r.Model.HostTypeFqn))
+        {
+            var methods = group.ToList();
+            var host = methods[0].Model;
+            var hint = UniqueHint(usedHints, (host.Namespace ?? "global") + "_" + host.HostSimpleName + "_Proxy");
+            context.AddSource(hint + ".g.cs", SourceText.From(RenderHostProxy(methods), Encoding.UTF8));
         }
     }
 
-    private static string Render(HandlerModel model, string requestName)
+    private static string RenderRequestAndHandler(HandlerModel model, string requestName)
     {
         var handlerName = requestName + "Handler";
         var serviceCall = model.HasCancellationToken
@@ -295,19 +309,6 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
         builder.AppendLine($"{indent}    public global::System.Threading.Tasks.Task<{model.ResponseTypeFqn}> Handle({requestName} request, global::System.Threading.CancellationToken cancellationToken)");
         builder.AppendLine($"{indent}        => _service.{model.MethodName}({serviceCall});");
         builder.AppendLine($"{indent}}}");
-        builder.AppendLine();
-
-        // Ergonomic ISender extension: sender.{Method}(args) => sender.Send(new {Request}(args)).
-        var extensionParameters = model.ExtensionParameters.Length == 0
-            ? "this global::PediatR.ISender sender"
-            : "this global::PediatR.ISender sender, " + model.ExtensionParameters;
-
-        builder.AppendLine($"{indent}/// <summary>Ergonomic dispatch for <c>{model.HostSimpleName}.{model.MethodName}</c> — sends <c>{requestName}</c> through the pipeline.</summary>");
-        builder.AppendLine($"{indent}public static class {requestName}SenderExtensions");
-        builder.AppendLine($"{indent}{{");
-        builder.AppendLine($"{indent}    public static global::System.Threading.Tasks.Task<{model.ResponseTypeFqn}> {model.MethodName}({extensionParameters}, global::System.Threading.CancellationToken cancellationToken = default)");
-        builder.AppendLine($"{indent}        => sender.Send(new {requestName}({model.ExtensionArguments}), cancellationToken);");
-        builder.AppendLine($"{indent}}}");
 
         if (model.Namespace is not null)
         {
@@ -315,6 +316,70 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
         }
 
         return builder.ToString();
+    }
+
+    private static string RenderHostProxy(List<(HandlerModel Model, string RequestName)> methods)
+    {
+        var host = methods[0].Model;
+        var indent = host.Namespace is null ? string.Empty : "    ";
+        var proxyName = host.HostSimpleName + "Proxy";
+        var accessor = host.HostSimpleName;
+
+        var builder = new StringBuilder();
+        builder.AppendLine("// <auto-generated/>");
+        builder.AppendLine("#nullable enable");
+        builder.AppendLine();
+
+        if (host.Namespace is not null)
+        {
+            builder.AppendLine($"namespace {host.Namespace}");
+            builder.AppendLine("{");
+        }
+
+        builder.AppendLine($"{indent}/// <summary>Grouped dispatch proxy for <c>{host.HostSimpleName}</c>. Reach it via <c>sender.{accessor}()</c>.</summary>");
+        builder.AppendLine($"{indent}public readonly struct {proxyName}");
+        builder.AppendLine($"{indent}{{");
+        builder.AppendLine($"{indent}    private readonly global::PediatR.ISender _sender;");
+        builder.AppendLine($"{indent}    public {proxyName}(global::PediatR.ISender sender)");
+        builder.AppendLine($"{indent}        => _sender = sender ?? throw new global::System.ArgumentNullException(nameof(sender));");
+
+        foreach (var (model, requestName) in methods)
+        {
+            var parameters = model.ProxyParameters.Length == 0 ? string.Empty : model.ProxyParameters + ", ";
+            builder.AppendLine();
+            builder.AppendLine($"{indent}    /// <summary>Dispatches <c>{host.HostSimpleName}.{model.MethodName}</c> as <c>{requestName}</c>.</summary>");
+            builder.AppendLine($"{indent}    public global::System.Threading.Tasks.Task<{model.ResponseTypeFqn}> {model.MethodName}({parameters}global::System.Threading.CancellationToken cancellationToken = default)");
+            builder.AppendLine($"{indent}        => _sender.Send(new {requestName}({model.ProxyArguments}), cancellationToken);");
+        }
+
+        builder.AppendLine($"{indent}}}");
+        builder.AppendLine();
+        builder.AppendLine($"{indent}/// <summary>Adds the <c>{accessor}()</c> grouped dispatch accessor to <c>ISender</c>.</summary>");
+        builder.AppendLine($"{indent}public static class {host.HostSimpleName}SenderProxyExtensions");
+        builder.AppendLine($"{indent}{{");
+        builder.AppendLine($"{indent}    /// <summary>Grouped dispatch for <c>{host.HostSimpleName}</c> requests.</summary>");
+        builder.AppendLine($"{indent}    public static {proxyName} {accessor}(this global::PediatR.ISender sender) => new(sender);");
+        builder.AppendLine($"{indent}}}");
+
+        if (host.Namespace is not null)
+        {
+            builder.AppendLine("}");
+        }
+
+        return builder.ToString();
+    }
+
+    private static string UniqueHint(HashSet<string> used, string baseName)
+    {
+        var hint = Sanitize(baseName);
+        var unique = hint;
+        var attempt = 1;
+        while (!used.Add(unique))
+        {
+            unique = hint + "_" + attempt++;
+        }
+
+        return unique;
     }
 
     // ── Attribute forwarding helpers ─────────────────────────────────────────
@@ -429,8 +494,8 @@ public sealed class RequestHandlerGenerator : IIncrementalGenerator
         string ResponseTypeFqn,
         string RecordParameters,
         string ServiceCallArguments,
-        string ExtensionParameters,
-        string ExtensionArguments,
+        string ProxyParameters,
+        string ProxyArguments,
         string ForwardedAttributes,
         bool HasCancellationToken)
     {

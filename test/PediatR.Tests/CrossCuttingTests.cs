@@ -176,8 +176,8 @@ public class CrossCuttingTests
         await using var provider = BuildProvider(_ => { });
         var sender = provider.GetRequiredService<ISender>();
 
-        // Ergonomic call site — no `new EchoQuery(...)` in sight.
-        Assert.Equal("hi", await sender.Echo("hi"));
+        // Ergonomic grouped call site — no `new EchoQuery(...)` in sight.
+        Assert.Equal("hi", await sender.SecuredFeatures().Echo("hi"));
     }
 
     private static ServiceProvider BuildProvider(Action<CurrentUser> configureUser, bool authorization = false, bool validation = false)

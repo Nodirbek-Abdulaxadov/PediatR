@@ -65,11 +65,11 @@ todos.MapPost("/", async (CreateTodo command, ISender sender) =>
     return Results.Created($"/todos/{todo.Id}", todo);
 });
 
-// Modes 2 & 3 (generated) dispatched through the ergonomic ISender extensions.
-todos.MapGet("/", (ISender sender) => sender.ListTodos());
-todos.MapGet("/count", (ISender sender) => sender.CountTodos());
+// Modes 2 & 3 (generated) dispatched through the grouped ISender proxy — sender.TodoQueries().X().
+todos.MapGet("/", (ISender sender) => sender.TodoQueries().ListTodos());
+todos.MapGet("/count", (ISender sender) => sender.TodoQueries().CountTodos());
 todos.MapGet("/{id:int}", async (int id, ISender sender)
-    => await sender.GetTodo(id) is { } todo ? Results.Ok(todo) : Results.NotFound());
+    => await sender.TodoQueries().GetTodo(id) is { } todo ? Results.Ok(todo) : Results.NotFound());
 
 // [Command] (generated) — explicit Send to show the other dispatch style.
 todos.MapPost("/{id:int}/complete", async (int id, ISender sender)

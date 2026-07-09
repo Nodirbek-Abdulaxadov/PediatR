@@ -112,8 +112,13 @@ normally. Dispatch either explicitly or through the generated ergonomic extensio
 
 ```csharp
 var todo  = await sender.Send(new GetTodoQuery(42));  // explicit
-var todo2 = await sender.GetTodo(42);                 // generated ISender extension
+var todo2 = await sender.TodoFeatures().GetTodo(42);  // generated grouped ISender proxy
 ```
+
+Queries and commands are grouped under their host (`sender.TodoFeatures().…`) rather than flattened
+onto `ISender` directly, so two features exposing a same-named request (e.g. two `GetAll`s) never
+collide at the call site. The accessor is a classic extension method, so it works down to
+netstandard2.0.
 
 - **`ICommand<T>` / `IQuery<T>`** are thin markers over `IRequest<T>` that let you target behaviors
   (e.g. `where TRequest : IQuery<TResponse>`). They are additive — hand-written or migrated code that

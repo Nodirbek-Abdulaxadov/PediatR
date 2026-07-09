@@ -15,14 +15,14 @@ services.AddPediatR(cfg =>
 var sender = services.BuildServiceProvider().GetRequiredService<ISender>();
 
 Console.WriteLine("== [Command] / [Query] (generated) ==");
-var id = await sender.AddProduct("Widget", 9.99m);        // generated ISender extension
+var id = await sender.ProductFeatures().AddProduct("Widget", 9.99m); // grouped ISender proxy
 Console.WriteLine($"Added product #{id}");
 
 var product = await sender.Send(new GetProductQuery(id)); // explicit dispatch of a generated request
 Console.WriteLine($"Fetched {product}");
 
 Console.WriteLine("\n== [Handler] (generated, neutral) ==");
-var all = await sender.ListProducts();                    // generated ISender extension
+var all = await sender.ProductFeatures().ListProducts();  // grouped ISender proxy
 Console.WriteLine($"Catalog holds {all.Count} product(s)");
 
 Console.WriteLine("\n== Classic hand-written handler (side by side) ==");
