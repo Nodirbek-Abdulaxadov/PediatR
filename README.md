@@ -125,8 +125,33 @@ netstandard2.0.
   only uses `IRequest<T>` is unaffected.
 - **Attribute forwarding.** Any attribute on the method that is valid on a class (e.g. `[Authorize]`)
   is copied onto the generated request, so authorization and other reflective behaviors work unchanged.
-- **Scope.** The generator handles `Task<T>`-returning instance methods; caching is a planned opt-in
+- **Scope.** The generator handles `Task<T>`-returning methods; caching is a planned opt-in
   behavior, not part of this layer.
+
+### Service interfaces & pre-shaped requests
+
+The host can also be a **service interface** (register its implementation with
+`AddScoped<ITodoService, TodoService>()`), and a parameter that already **is** a request is used
+directly instead of being wrapped:
+
+```csharp
+public sealed record CreateTodoCommand(string Title) : ICommand<TodoView>;   // your own request DTO
+
+public interface ITodoService                       // attributes on interface methods
+{
+    [Command] Task<TodoView> CreateAsync(CreateTodoCommand command, CancellationToken ct = default); // pass-through
+    [Query]   Task<TodoView> GetAsync(Guid id, CancellationToken ct = default);                       // → GetAsyncQuery(Guid Id)
+}
+```
+
+- **Pass-through** — `CreateAsync`'s parameter already implements `ICommand<TodoView>`, so
+  `CreateTodoCommand` *is* the request; nothing extra is generated. `await sender.Send(new CreateTodoCommand("x"))`
+  hits the generated handler, which injects `ITodoService` and calls `CreateAsync`.
+- **Wrapper** — `GetAsync`'s plain `Guid` becomes `GetAsyncQuery(Guid Id)`.
+- The grouped accessor strips the leading `I`: `await sender.TodoService().CreateAsync(command)`.
+
+This is the ergonomics of Commandor's service-grouped API, kept in the exact MediatR shape
+(`IRequestHandler<,>`, `Send`).
 
 None of this touches the drop-in guarantee: the generator only reacts to `[Handler]`/`[Command]`/
 `[Query]`, so a mechanical `MediatR` → `PediatR` migration (which has none of them) compiles
